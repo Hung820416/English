@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 完美修正版：輸入區固定在最下方，語音在打字最左邊，且完整保留 A/B/C 提示！")
+st.caption("UI 完美修正版：輸入區置底、語音在最左側。新增：AI發音與拼字糾錯、慢速英文朗讀！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -48,14 +48,15 @@ lessons = {
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
 
-# 文字轉語音的輔助功能（精準過濾掉標籤與中文，只讀英文句子）
+# 文字轉語音的輔助功能（已開啟 slow=True 慢速模式）
 def get_audio_bytes(text):
     try:
         clean_text = re.sub(r'^.*?[：:]', '', text)
         clean_text = re.sub(r'[\(\[\{【].*?[\)\]\}】]', '', clean_text)
         clean_text = "".join(c for c in clean_text if c.isascii()).strip()
         if clean_text:
-            tts = gTTS(text=clean_text, lang='en', slow=False)
+            # 💡 重點修正：將 slow 改為 True，讓發音速度變慢，聽得更清楚
+            tts = gTTS(text=clean_text, lang='en', slow=True)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             fp.seek(0)
@@ -77,7 +78,7 @@ def parse_and_display_response(full_text, is_last=False):
             if audio_fp:
                 st.audio(audio_fp, format="audio/mp3")
         
-        st.write("💡 **詞窮了嗎？點擊下方可聽發音範例：**")
+        st.write("💡 **詞窮了嗎？點擊下方可聽慢速發音範例：**")
         
         # 顯示並生成 A、B、C 提示
         for part in parts[1:]:
@@ -95,7 +96,7 @@ def parse_and_display_response(full_text, is_last=False):
             if audio_fp:
                 st.audio(audio_fp, format="audio/mp3")
 
-# 初始化對話歷史（修正：完整保留核心 System Prompt 規則）
+# 初始化對話歷史（大修補：強化 AI 的發音與拼字糾錯能力）
 if "current_lesson" not in st.session_state or st.session_state.current_lesson != selected_lesson:
     st.session_state.current_lesson = selected_lesson
     st.session_state.messages = [
@@ -107,10 +108,12 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
                 f"規則：\n"
                 f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話）。\n"
                 f"2. 每一句英文後面，必須括號附上【中文翻譯】。\n"
-                f"3. 如果發現學生的英文有語法錯誤，請在對話最後用中文溫柔地糾正並給出正確說法。\n"
+                f"3. 【強力糾錯指令】：因為學生是0基礎，語音辨識出來的英文可能因為發音不準而有拼字錯誤（例如把 'hello' 唸成 'helo'，或把 'ready' 辨識成別的怪單字）。"
+                f"如果發現學生的英文有文法錯誤，或疑似發音不準導致辨識出奇怪的英文單字，請在對話最後用中文溫柔地糾正、給出正確的說法，並特別提醒發音或拼法重點。\n"
                 f"4. 請主動開啟與該情境相關的對話，引導學生回答。\n"
                 f"5. **重要回傳格式規則**：在你對話結束後，必須精準使用雙豎線『||』當作分隔符號，來提供 3 個簡單回答方向提示。請嚴格按照以下格式輸出，不要有多餘的字：\n"
                 f"[老師說的話與中文翻譯]\n"
+                f"（如有錯誤，在這裡加上中文溫柔糾錯與發音指引）\n"
                 f"||方向 A：[英文句子] 【中文翻譯】\n"
                 f"||方向 B：[英文句子] 【中文翻譯】\n"
                 f"||方向 C：[英文句子] 【中文翻譯】"
@@ -141,11 +144,10 @@ for idx, msg in enumerate(st.session_state.messages):
 user_message = None
 
 with st.container():
-    st.write("") # 留一點點空白墊底
+    st.write("") 
     col1, col2 = st.columns([1, 4])
     
     with col1:
-        # 動態變更 key 確保多輪語音順暢不卡死
         audio_key = f"audio_in_{len(st.session_state.messages)}"
         audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
         
@@ -179,6 +181,6 @@ if user_message:
         )
         response = chat_completion.choices[0].message.content
         st.session_state.messages.append({"role": "assistant", "content": response})
-        st.rerun() # 強制刷新網頁，讓全新乾淨的錄音鈕浮現
+        st.rerun() 
     except Exception as e:
         st.error(f"連線錯誤: {str(e)}")
