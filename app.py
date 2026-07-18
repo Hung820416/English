@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("升級版：支援老師語音朗讀 + 3個回答方向提示，讓你不再詞窮！")
+st.caption("進階版：老師語音與 A、B、C 提示語音完全分離，想聽哪句就點哪句！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -48,19 +48,55 @@ lessons = {
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
 
-# 文字轉語音的輔助函式（只讀英文）
-def play_teacher_voice(text):
+# 文字轉語音的輔助功能（過濾中文只讀英文）
+def get_audio_bytes(text):
     try:
-        # 使用正規表達式把括號裡的中文【】或 () 拿掉，只留下英文給 AI 讀
+        # 把括號裡的中文【】或 () 拿掉，只留下英文給 AI 讀
         english_only = re.sub(r'[\(\[\{【].*?[\)\]\}】]', '', text)
+        english_only = english_only.replace("方向 A:", "").replace("方向 B:", "").replace("方向 C:", "")
         if english_only.strip():
             tts = gTTS(text=english_only, lang='en', slow=False)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             fp.seek(0)
-            st.audio(fp, format="audio/mp3")
+            return fp
     except Exception as e:
-        st.write("🔊 語音產生失敗")
+        return None
+    return None
+
+# 解析 AI 回傳文字，把老師說的話與提示區分開來
+def parse_and_display_response(full_text, is_last=False):
+    # 用特製標籤切割文字
+    if "||" in full_text:
+        parts = full_text.split("||")
+        teacher_talk = parts[0].strip()
+        st.write(teacher_talk)
+        
+        # 播放老師說的話
+        if is_last:
+            audio_fp = get_audio_bytes(teacher_talk)
+            if audio_fp:
+                st.audio(audio_fp, format="audio/mp3")
+        
+        st.write("💡 **詞窮了嗎？點擊下方可聽發音範例：**")
+        
+        # 顯示 A、B、C 提示
+        for part in parts[1:]:
+            part_text = part.strip()
+            if part_text:
+                # 用排版分開
+                st.markdown(f"👉 {part_text}")
+                if is_last:
+                    hint_audio = get_audio_bytes(part_text)
+                    if hint_audio:
+                        st.audio(hint_audio, format="audio/mp3")
+    else:
+        # 如果模型沒有乖乖按照格式輸出，就走原本的預設模式
+        st.write(full_text)
+        if is_last:
+            audio_fp = get_audio_bytes(full_text)
+            if audio_fp:
+                st.audio(audio_fp, format="audio/mp3")
 
 # 如果使用者切換了課程，就重設聊天歷史
 if "current_lesson" not in st.session_state or st.session_state.current_lesson != selected_lesson:
@@ -72,37 +108,37 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
                 f"你是一位專門教導『0基礎華人』的英文老師，名字叫 Lily。\n"
                 f"目前的情境是：【{selected_lesson}】。\n"
                 f"規則：\n"
-                f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話，單字要簡單）。\n"
+                f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話）。\n"
                 f"2. 每一句英文後面，必須括號附上【中文翻譯】。\n"
-                f"3. 如果發現學生的英文有語法錯誤，請在對話最後用中文溫柔地糾正，並給出正確說法。\n"
+                f"3. 如果發現學生的英文有語法錯誤，請在對話最後用中文溫柔地糾正並給出正確說法。\n"
                 f"4. 請主動開啟與該情境相關的對話，引導學生回答。\n"
-                f"5. **重要新規則**：在你的回答結束後，必須換行並提供 3 個『給學生的簡單回答提示方向（包含英文範例與中文翻譯）』，格式如下：\n"
-                f"💡 詞窮了嗎？你可以這樣回答：\n"
-                f"方向 A (正面回答)：[英文句子] 【中文翻譯】\n"
-                f"方向 B (反面回答/不知道)：[英文句子] 【中文翻譯】\n"
-                f"方向 C (詢問問題/其他)：[英文句子] 【中文翻譯】"
+                f"5. **重要回傳格式規則**：在你對話結束後，必須精準使用雙豎線『||』當作分隔符號，來提供 3 個簡單回答方向提示。請嚴格按照以下格式輸出，不要有多餘的字：\n"
+                f"[老師說的話與中文翻譯]\n"
+                f"||方向 A (正面回答)：[英文句子] 【中文翻譯】\n"
+                f"||方向 B (反面回答/不知道)：[英文句子] 【中文翻譯】\n"
+                f"||方向 C (詢問問題/其他)：[英文句子] 【中文翻譯】"
             )
         },
         {
             "role": "assistant",
             "content": (
-                f"Hello! Let's practice {selected_lesson}. I will start! \n（你好！讓我們來練習這堂課。我先開始囉！）\n\n"
-                f"💡 詞窮了嗎？你可以說：\n"
-                f"方向 A：OK! Let's start.【好！我們開始吧。】\n"
-                f"方向 B：I am ready.【我準備好了。】\n"
-                f"方向 C：Hello teacher Lily!【麗莉老師妳好！】"
+                f"Hello! Let's practice {selected_lesson}. I will start! \n（你好！讓我們來練習這堂課。我先開始囉！）\n"
+                f"||方向 A：OK! Let's start.【好！我們開始吧。】\n"
+                f"||方向 B：I am ready.【我準備好了。】\n"
+                f"||方向 C：Hello teacher Lily!【麗莉老師妳好！】"
             )
         }
     ]
 
 # 3. 顯示歷史對話紀錄
-for msg in st.session_state.messages:
+for idx, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-            # 如果是老師說的話，播放聲音
-            if msg["role"] == "assistant" and msg == st.session_state.messages[-1]:
-                play_teacher_voice(msg["content"])
+            is_last_msg = (idx == len(st.session_state.messages) - 1)
+            if msg["role"] == "assistant":
+                parse_and_display_response(msg["content"], is_last=is_last_msg)
+            else:
+                st.write(msg["content"])
 
 # 4. 語音與文字輸入區
 st.write("---")
@@ -142,13 +178,12 @@ if user_message:
                 chat_completion = client.chat.completions.create(
                     messages=st.session_state.messages,
                     model="llama-3.1-8b-instant",
-                    temperature=0.7,
+                    temperature=0.4, # 降低隨機性，讓 AI 更嚴格遵守 || 格式
                 )
                 response = chat_completion.choices[0].message.content
-                st.write(response)
                 
-                # 自動朗讀最新這句回答
-                play_teacher_voice(response)
+                # 解析並呈現分離的語音
+                parse_and_display_response(response, is_last=True)
                 
                 st.session_state.messages.append({"role": "assistant", "content": response})
             except Exception as e:
