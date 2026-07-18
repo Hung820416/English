@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("進階版：老師語音與 A、B、C 提示語音完全分離，想聽哪句就點哪句！")
+st.caption("完美優化版：提示語音已過濾掉標籤與中文，只會播放純英文句子！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -48,14 +48,20 @@ lessons = {
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
 
-# 文字轉語音的輔助功能（過濾中文只讀英文）
+# 【核心功能修改】：文字轉語音的輔助功能（精準過濾掉非英文內容）
 def get_audio_bytes(text):
     try:
-        # 把括號裡的中文【】或 () 拿掉，只留下英文給 AI 讀
-        english_only = re.sub(r'[\(\[\{【].*?[\)\]\}】]', '', text)
-        english_only = english_only.replace("方向 A:", "").replace("方向 B:", "").replace("方向 C:", "")
-        if english_only.strip():
-            tts = gTTS(text=english_only, lang='en', slow=False)
+        # 1. 移除可能出現在開頭的「方向 A：」、「方向 B (正面回答)：」等中文字樣
+        clean_text = re.sub(r'^.*?[：:]', '', text)
+        
+        # 2. 移除所有括號（如 【中文翻譯】 或 (中文)）及其內部的中文
+        clean_text = re.sub(r'[\(\[\{【].*?[\)\]\}】]', '', clean_text)
+        
+        # 3. 確保只留下純英文、數字與常見標點符號，過濾殘留中文
+        clean_text = "".join(c for c in clean_text if c.isascii()).strip()
+        
+        if clean_text:
+            tts = gTTS(text=clean_text, lang='en', slow=False)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             fp.seek(0)
@@ -66,7 +72,6 @@ def get_audio_bytes(text):
 
 # 解析 AI 回傳文字，把老師說的話與提示區分開來
 def parse_and_display_response(full_text, is_last=False):
-    # 用特製標籤切割文字
     if "||" in full_text:
         parts = full_text.split("||")
         teacher_talk = parts[0].strip()
@@ -84,14 +89,13 @@ def parse_and_display_response(full_text, is_last=False):
         for part in parts[1:]:
             part_text = part.strip()
             if part_text:
-                # 用排版分開
                 st.markdown(f"👉 {part_text}")
                 if is_last:
+                    # 這邊傳進去的文字會先經過 get_audio_bytes 清理，只讀純英文
                     hint_audio = get_audio_bytes(part_text)
                     if hint_audio:
                         st.audio(hint_audio, format="audio/mp3")
     else:
-        # 如果模型沒有乖乖按照格式輸出，就走原本的預設模式
         st.write(full_text)
         if is_last:
             audio_fp = get_audio_bytes(full_text)
@@ -114,9 +118,9 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
                 f"4. 請主動開啟與該情境相關的對話，引導學生回答。\n"
                 f"5. **重要回傳格式規則**：在你對話結束後，必須精準使用雙豎線『||』當作分隔符號，來提供 3 個簡單回答方向提示。請嚴格按照以下格式輸出，不要有多餘的字：\n"
                 f"[老師說的話與中文翻譯]\n"
-                f"||方向 A (正面回答)：[英文句子] 【中文翻譯】\n"
-                f"||方向 B (反面回答/不知道)：[英文句子] 【中文翻譯】\n"
-                f"||方向 C (詢問問題/其他)：[英文句子] 【中文翻譯】"
+                f"||方向 A：[英文句子] 【中文翻譯】\n"
+                f"||方向 B：[英文句子] 【中文翻譯】\n"
+                f"||方向 C：[英文句子] 【中文翻譯】"
             )
         },
         {
@@ -178,7 +182,7 @@ if user_message:
                 chat_completion = client.chat.completions.create(
                     messages=st.session_state.messages,
                     model="llama-3.1-8b-instant",
-                    temperature=0.4, # 降低隨機性，讓 AI 更嚴格遵守 || 格式
+                    temperature=0.4,
                 )
                 response = chat_completion.choices[0].message.content
                 
