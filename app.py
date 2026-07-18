@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 修正版：對話框與錄音鈕已移回最下方固定，操作更直覺！")
+st.caption("UI 完美修正版：輸入區固定在最下方，語音在打字最左邊，且完整保留 A/B/C 提示！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -32,7 +32,7 @@ lessons = {
     "Lesson 7: 飯店辦理入住": "情境：抵達國外飯店，辦理 Check-in 拿房卡。",
     "Lesson 8: 詢問路人方向": "情境：在國外迷路了，詢問捷運站或洗手間在哪裡。",
     "Lesson 9: 搭乘大眾運輸": "情境：買火車票/公車票，並確認有沒有到目的地。",
-    "Lesson 10: 計程車對話": "情境：上車告訴司機地址，並抵達後詢問車資。",
+    "Lesson 10: 計程車對話": "情境：上車告知司機地址，並抵達後詢問車資。",
     "Lesson 11: 咖啡廳點餐": "情境：點一杯咖啡，選擇冰熱與大杯小杯。",
     "Lesson 12: 餐廳預位與入座": "情境：走進餐廳，告知服務生有幾位並引導就座。",
     "Lesson 13: 餐廳點主餐與結帳": "情境：看菜單點餐、請服務生推薦，以及最後買單。",
@@ -48,7 +48,7 @@ lessons = {
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
 
-# 文字轉語音的輔助功能
+# 文字轉語音的輔助功能（精準過濾掉標籤與中文，只讀英文句子）
 def get_audio_bytes(text):
     try:
         clean_text = re.sub(r'^.*?[：:]', '', text)
@@ -64,13 +64,14 @@ def get_audio_bytes(text):
         return None
     return None
 
-# 解析 AI 回傳文字
+# 解析 AI 回傳文字，把老師說的話與提示區分開來顯示與發音
 def parse_and_display_response(full_text, is_last=False):
     if "||" in full_text:
         parts = full_text.split("||")
         teacher_talk = parts[0].strip()
         st.write(teacher_talk)
         
+        # 播放老師說的話（最新的一輪才自動播）
         if is_last:
             audio_fp = get_audio_bytes(teacher_talk)
             if audio_fp:
@@ -78,6 +79,7 @@ def parse_and_display_response(full_text, is_last=False):
         
         st.write("💡 **詞窮了嗎？點擊下方可聽發音範例：**")
         
+        # 顯示並生成 A、B、C 提示
         for part in parts[1:]:
             part_text = part.strip()
             if part_text:
@@ -93,7 +95,7 @@ def parse_and_display_response(full_text, is_last=False):
             if audio_fp:
                 st.audio(audio_fp, format="audio/mp3")
 
-# 初始化對話歷史
+# 初始化對話歷史（修正：完整保留核心 System Prompt 規則）
 if "current_lesson" not in st.session_state or st.session_state.current_lesson != selected_lesson:
     st.session_state.current_lesson = selected_lesson
     st.session_state.messages = [
@@ -102,7 +104,16 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
             "content": (
                 f"你是一位專門教導『0基礎華人』的英文老師，名字叫 Lily。\n"
                 f"目前的情境是：【{selected_lesson}】。\n"
-                f"規則同前。"
+                f"規則：\n"
+                f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話）。\n"
+                f"2. 每一句英文後面，必須括號附上【中文翻譯】。\n"
+                f"3. 如果發現學生的英文有語法錯誤，請在對話最後用中文溫柔地糾正並給出正確說法。\n"
+                f"4. 請主動開啟與該情境相關的對話，引導學生回答。\n"
+                f"5. **重要回傳格式規則**：在你對話結束後，必須精準使用雙豎線『||』當作分隔符號，來提供 3 個簡單回答方向提示。請嚴格按照以下格式輸出，不要有多餘的字：\n"
+                f"[老師說的話與中文翻譯]\n"
+                f"||方向 A：[英文句子] 【中文翻譯】\n"
+                f"||方向 B：[英文句子] 【中文翻譯】\n"
+                f"||方向 C：[英文句子] 【中文翻譯】"
             )
         },
         {
@@ -126,26 +137,21 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 4. 重要修正：利用 st.columns 把語音和打字固定在最底端 ───
+# ─── 4. 輸入區置底：語音在左、打字在右 ───
 user_message = None
 
-# 使用 Streamlit 內建的底端固定貨櫃，確保它們永遠釘在螢幕最下方，不會隨對話變長而消失
 with st.container():
     st.write("") # 留一點點空白墊底
-    
-    # 建立左右兩欄，左邊(小)放語音錄音，右邊(大)放打字
     col1, col2 = st.columns([1, 4])
     
     with col1:
-        # 動態關鍵字，強迫每輪對話重置錄音元件狀態，解決第二輪無法錄音的 BUG
+        # 動態變更 key 確保多輪語音順暢不卡死
         audio_key = f"audio_in_{len(st.session_state.messages)}"
         audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
         
     with col2:
-        # 使用內建會固定在底部的 chat_input
         user_text = st.chat_input("或者是用打字回答 Lily 老師...")
 
-    # 判斷是哪一個輸入啟動了
     if audio_file:
         with st.spinner("正在把你的聲音轉成文字..."):
             try:
@@ -161,7 +167,7 @@ with st.container():
     if user_text:
         user_message = user_text
 
-# ─── 5. 當收到使用者訊息時，送給 AI 並重新載入網頁 ───
+# ─── 5. 處理使用者訊息 ───
 if user_message:
     st.session_state.messages.append({"role": "user", "content": user_message})
     
@@ -173,7 +179,6 @@ if user_message:
         )
         response = chat_completion.choices[0].message.content
         st.session_state.messages.append({"role": "assistant", "content": response})
-        # 立即強制重新整理網頁，讓最新的對話和全新的錄音按鈕直接渲染出來
-        st.rerun()
+        st.rerun() # 強制刷新網頁，讓全新乾淨的錄音鈕浮現
     except Exception as e:
         st.error(f"連線錯誤: {str(e)}")
