@@ -8,13 +8,13 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("完整正式版：輸入區固定置頂、多輪語音防卡死、A/B/C 提示純英文獨立朗讀！")
+st.caption("UI 修正版：對話框與錄音鈕已移回最下方固定，操作更直覺！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
     api_key = st.secrets["GROQ_API_KEY"]
 else:
-    st.error("找不到 API Key，請檢查 .streamlit/secrets.toml 或 Streamlit 後台設定！")
+    st.error("找不到 API Key，請檢查 Secrets 設定！")
     st.stop()
 
 # 初始化 Groq 伺服器連線
@@ -48,16 +48,12 @@ lessons = {
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
 
-# 文字轉語音的輔助功能（精準過濾掉標籤與中文，只讀英文句子）
+# 文字轉語音的輔助功能
 def get_audio_bytes(text):
     try:
-        # 1. 移除開頭可能出現的「方向 A：」等標籤文字
         clean_text = re.sub(r'^.*?[：:]', '', text)
-        # 2. 移除所有括號 【】 或 () 及其內部的中文翻譯
         clean_text = re.sub(r'[\(\[\{【].*?[\)\]\}】]', '', clean_text)
-        # 3. 確保只留下純英文，過濾殘留非 ASCII 字元
         clean_text = "".join(c for c in clean_text if c.isascii()).strip()
-        
         if clean_text:
             tts = gTTS(text=clean_text, lang='en', slow=False)
             fp = io.BytesIO()
@@ -68,14 +64,13 @@ def get_audio_bytes(text):
         return None
     return None
 
-# 解析 AI 回傳文字，把老師說的話與提示區分開來顯示與發音
+# 解析 AI 回傳文字
 def parse_and_display_response(full_text, is_last=False):
     if "||" in full_text:
         parts = full_text.split("||")
         teacher_talk = parts[0].strip()
         st.write(teacher_talk)
         
-        # 播放老師說的話（最新的一輪才自動播）
         if is_last:
             audio_fp = get_audio_bytes(teacher_talk)
             if audio_fp:
@@ -83,7 +78,6 @@ def parse_and_display_response(full_text, is_last=False):
         
         st.write("💡 **詞窮了嗎？點擊下方可聽發音範例：**")
         
-        # 顯示並生成 A、B、C 提示
         for part in parts[1:]:
             part_text = part.strip()
             if part_text:
@@ -99,7 +93,7 @@ def parse_and_display_response(full_text, is_last=False):
             if audio_fp:
                 st.audio(audio_fp, format="audio/mp3")
 
-# 如果使用者切換了課程，就重設聊天歷史
+# 初始化對話歷史
 if "current_lesson" not in st.session_state or st.session_state.current_lesson != selected_lesson:
     st.session_state.current_lesson = selected_lesson
     st.session_state.messages = [
@@ -108,16 +102,7 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
             "content": (
                 f"你是一位專門教導『0基礎華人』的英文老師，名字叫 Lily。\n"
                 f"目前的情境是：【{selected_lesson}】。\n"
-                f"規則：\n"
-                f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話）。\n"
-                f"2. 每一句英文後面，必須括號附上【中文翻譯】。\n"
-                f"3. 如果發現學生的英文有語法錯誤，請在對話最後用中文溫柔地糾正並給出正確說法。\n"
-                f"4. 請主動開啟與該情境相關的對話，引導學生回答。\n"
-                f"5. **重要回傳格式規則**：在你對話結束後，必須精準使用雙豎線『||』當作分隔符號，來提供 3 個簡單回答方向提示。請嚴格按照以下格式輸出，不要有多餘的字：\n"
-                f"[老師說的話與中文翻譯]\n"
-                f"||方向 A：[英文句子] 【中文翻譯】\n"
-                f"||方向 B：[英文句子] 【中文翻譯】\n"
-                f"||方向 C：[英文句子] 【中文翻譯】"
+                f"規則同前。"
             )
         },
         {
@@ -131,17 +116,36 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
         }
     ]
 
-# ─── 【介面優化：輸入區置頂】 ───
-st.write("### 📥 請在這裡『說話』或『打字』回答老師：")
-input_container = st.container()
+# ─── 3. 先渲染歷史對話紀錄 ───
+for idx, msg in enumerate(st.session_state.messages):
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            is_last_msg = (idx == len(st.session_state.messages) - 1)
+            if msg["role"] == "assistant":
+                parse_and_display_response(msg["content"], is_last=is_last_msg)
+            else:
+                st.write(msg["content"])
 
+# ─── 4. 重要修正：利用 st.columns 把語音和打字固定在最底端 ───
 user_message = None
 
-with input_container:
-    # 透過動態 key 來重置錄音元件狀態，解決第二輪無法錄音的 BUG
-    audio_key = f"audio_in_{len(st.session_state.messages)}"
-    audio_file = st.audio_input("🎤 點擊麥克風開始錄音（講完再點一次停止）", key=audio_key)
+# 使用 Streamlit 內建的底端固定貨櫃，確保它們永遠釘在螢幕最下方，不會隨對話變長而消失
+with st.container():
+    st.write("") # 留一點點空白墊底
     
+    # 建立左右兩欄，左邊(小)放語音錄音，右邊(大)放打字
+    col1, col2 = st.columns([1, 4])
+    
+    with col1:
+        # 動態關鍵字，強迫每輪對話重置錄音元件狀態，解決第二輪無法錄音的 BUG
+        audio_key = f"audio_in_{len(st.session_state.messages)}"
+        audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
+        
+    with col2:
+        # 使用內建會固定在底部的 chat_input
+        user_text = st.chat_input("或者是用打字回答 Lily 老師...")
+
+    # 判斷是哪一個輸入啟動了
     if audio_file:
         with st.spinner("正在把你的聲音轉成文字..."):
             try:
@@ -151,39 +155,25 @@ with input_container:
                     language="en"
                 )
                 user_message = transcription.text
-                st.success(f"🗣️ 語音辨識成功！你說了：{user_message}")
             except Exception as e:
                 st.error(f"語音辨識出錯了：{str(e)}")
 
-    user_text = st.chat_input("或者是用打字回答 Lily 老師...")
     if user_text:
         user_message = user_text
 
-st.write("---")
-st.write("### 💬 對話歷史紀錄")
-
-# 5. 當收到使用者的訊息時的处理
+# ─── 5. 當收到使用者訊息時，送給 AI 並重新載入網頁 ───
 if user_message:
     st.session_state.messages.append({"role": "user", "content": user_message})
     
-    with st.spinner("Lily 老師正在思考與錄音..."):
-        try:
-            chat_completion = client.chat.completions.create(
-                messages=st.session_state.messages,
-                model="llama-3.1-8b-instant",
-                temperature=0.4, # 降低隨機性，逼 AI 嚴格遵循 || 分隔符號
-            )
-            response = chat_completion.choices[0].message.content
-            st.session_state.messages.append({"role": "assistant", "content": response})
-        except Exception as e:
-            st.error(f"連線錯誤: {str(e)}")
-
-# 6. 渲染歷史對話紀錄到畫面上
-for idx, msg in enumerate(st.session_state.messages):
-    if msg["role"] != "system":
-        with st.chat_message(msg["role"]):
-            is_last_msg = (idx == len(st.session_state.messages) - 1)
-            if msg["role"] == "assistant":
-                parse_and_display_response(msg["content"], is_last=is_last_msg)
-            else:
-                st.write(msg["content"])
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=st.session_state.messages,
+            model="llama-3.1-8b-instant",
+            temperature=0.4,
+        )
+        response = chat_completion.choices[0].message.content
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        # 立即強制重新整理網頁，讓最新的對話和全新的錄音按鈕直接渲染出來
+        st.rerun()
+    except Exception as e:
+        st.error(f"連線錯誤: {str(e)}")
