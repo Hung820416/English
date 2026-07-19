@@ -7,8 +7,31 @@ import re
 # 設定網頁標題與手機排版
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
+# 💡 核心魔法：用 CSS 強制將最下方的輸入區容器固定在螢幕底部
+st.markdown(
+    """
+    <style>
+    /* 讓底部輸入容器固定在視窗最下方 */
+    div[data-testid="stVerticalBlockBorderWrapper"] > div:last-child {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background-color: var(--background-color);
+        padding: 10px 20px 20px 20px;
+        z-index: 99999;
+    }
+    /* 為了防止最後一句對話被固定的底部欄遮住，給主頁面留一些底部空間 */
+    .main .block-container {
+        padding-bottom: 120px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 終極進化版：語音置於左側選單，打字完美黏著置底，雙效合一不衝突！")
+st.caption("UI 終極進化版：左側語音、右側打字，完美水平並排且穩固置底！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -20,7 +43,7 @@ else:
 # 初始化 Groq 伺服器連線
 client = Groq(api_key=api_key)
 
-# 2. 左側選單：情境課程 與 🎤 語音輸入區（移至此處徹底解決消失的 Bug）
+# 2. 左側選單：20個情境課程
 lessons = {
     "Lesson 1: 打招呼與自我介紹": "情境：初次見面，互相介紹名字與問好。",
     "Lesson 2: 詢問對方近況": "情境：朋友見面問候 How are you 社交寒暄。",
@@ -46,26 +69,6 @@ lessons = {
 
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
-
-# 💡 關鍵招式：把麥克風放進側邊欄，完全隔離，保障兩個輸入元件同時存活！
-st.sidebar.write("---")
-st.sidebar.write("### 🎤 開口說英文：")
-audio_key = f"audio_sidebar_{len(st.session_state.get('messages', []))}"
-audio_file = st.sidebar.audio_input("語音輸入", key=audio_key, label_visibility="collapsed")
-
-user_message = None
-
-if audio_file:
-    with st.spinner("正在把你的聲音轉成文字..."):
-        try:
-            transcription = client.audio.transcriptions.create(
-                file=(audio_file.name, audio_file.read()),
-                model="whisper-large-v3",
-                language="en"
-            )
-            user_message = transcription.text
-        except Exception as e:
-            st.error(f"語音辨識出錯了：{str(e)}")
 
 # 文字轉語音的輔助功能（慢速模式）
 def get_audio_bytes(text):
@@ -172,7 +175,7 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
                 f"}}\n"
                 f"```\n"
                 f"||方向 A：OK! Let's start.【好！我們開始吧。】\n"
-                f"||方向 B:: I am ready.【我準備好了。】\n"
+                f"||方向 B：I am ready.【我準備好了。】\n"
                 f"||方向 C：Hello teacher Lily!【麗莉老師妳好！】"
             )
         }
@@ -188,10 +191,38 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 4. 主畫面輸入框：孤立在最外層，觸發強制的黏著置底特性 ───
-user_text = st.chat_input("或者是用打字回答 Lily 老師...")
-if user_text:
-    user_message = user_text
+# ─── 4. LINE風格：左側語音、右側打字（透過下方容器結合 CSS 實現強置底） ───
+user_message = None
+
+# 注意：此容器在頁面程式碼最後方，會被我們的 CSS 抓到並強制固定在最底部
+input_container = st.container()
+with input_container:
+    col1, col2 = st.columns([1, 5])
+    
+    with col1:
+        audio_key = f"audio_fixed_{len(st.session_state.messages)}"
+        # 使用原生麥克風小圖，使其在水平排列中不突兀
+        audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
+        
+    with col2:
+        # 改用普通的 text_input 來與語音完美水平並排，並移除預設外框標籤
+        user_text = st.text_input("回答 Lily 老師...", key=f"text_fixed_{len(st.session_state.messages)}", label_visibility="collapsed", placeholder="或者是用打字回答...")
+
+    if audio_file:
+        with st.spinner("正在辨識語音..."):
+            try:
+                transcription = client.audio.transcriptions.create(
+                    file=(audio_file.name, audio_file.read()),
+                    model="whisper-large-v3",
+                    language="en"
+                )
+                user_message = transcription.text
+            except Exception as e:
+                st.error(f"語音辨識出錯了：{str(e)}")
+
+    # 當使用者按下 Enter 送出文字時觸發
+    if user_text:
+        user_message = user_text
 
 # ─── 5. 處理使用者訊息 ───
 if user_message:
