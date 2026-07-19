@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 終極進化版：輸入框已完美固定置底，手機操作超流暢！")
+st.caption("UI 終極進化版：語音置於左側選單，打字完美黏著置底，雙效合一不衝突！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -20,7 +20,7 @@ else:
 # 初始化 Groq 伺服器連線
 client = Groq(api_key=api_key)
 
-# 2. 左側選單：20個情境課程
+# 2. 左側選單：情境課程 與 🎤 語音輸入區（移至此處徹底解決消失的 Bug）
 lessons = {
     "Lesson 1: 打招呼與自我介紹": "情境：初次見面，互相介紹名字與問好。",
     "Lesson 2: 詢問對方近況": "情境：朋友見面問候 How are you 社交寒暄。",
@@ -46,6 +46,26 @@ lessons = {
 
 selected_lesson = st.sidebar.selectbox("請選擇一堂課開始練習：", list(lessons.keys()))
 st.sidebar.info(lessons[selected_lesson])
+
+# 💡 關鍵招式：把麥克風放進側邊欄，完全隔離，保障兩個輸入元件同時存活！
+st.sidebar.write("---")
+st.sidebar.write("### 🎤 開口說英文：")
+audio_key = f"audio_sidebar_{len(st.session_state.get('messages', []))}"
+audio_file = st.sidebar.audio_input("語音輸入", key=audio_key, label_visibility="collapsed")
+
+user_message = None
+
+if audio_file:
+    with st.spinner("正在把你的聲音轉成文字..."):
+        try:
+            transcription = client.audio.transcriptions.create(
+                file=(audio_file.name, audio_file.read()),
+                model="whisper-large-v3",
+                language="en"
+            )
+            user_message = transcription.text
+        except Exception as e:
+            st.error(f"語音辨識出錯了：{str(e)}")
 
 # 文字轉語音的輔助功能（慢速模式）
 def get_audio_bytes(text):
@@ -152,34 +172,13 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
                 f"}}\n"
                 f"```\n"
                 f"||方向 A：OK! Let's start.【好！我們開始吧。】\n"
-                f"||方向 B：I am ready.【我準備好了。】\n"
+                f"||方向 B:: I am ready.【我準備好了。】\n"
                 f"||方向 C：Hello teacher Lily!【麗莉老師妳好！】"
             )
         }
     ]
 
-# ─── 3. 語音輸入區：移至頂部固定位置（不再綁定置底，避免破壞自動黏著特性） ───
-st.write("### 🎤 點擊錄音直接說話：")
-audio_key = f"audio_in_{len(st.session_state.messages)}"
-audio_file = st.audio_input("語音輸入", key=audio_key, label_visibility="collapsed")
-
-user_message = None
-
-if audio_file:
-    with st.spinner("正在把你的聲音轉成文字..."):
-        try:
-            transcription = client.audio.transcriptions.create(
-                file=(audio_file.name, audio_file.read()),
-                model="whisper-large-v3",
-                language="en"
-            )
-            user_message = transcription.text
-        except Exception as e:
-            st.error(f"語音辨識出錯了：{str(e)}")
-
-st.write("---")
-
-# ─── 4. 渲染歷史對話紀錄 ───
+# ─── 3. 渲染歷史對話紀錄 ───
 for idx, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
@@ -189,12 +188,12 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 5. 解放打字輸入框：單獨放在最外層，觸發內建固定置底特性 ───
+# ─── 4. 主畫面輸入框：孤立在最外層，觸發強制的黏著置底特性 ───
 user_text = st.chat_input("或者是用打字回答 Lily 老師...")
 if user_text:
     user_message = user_text
 
-# ─── 6. 處理使用者訊息 ───
+# ─── 5. 處理使用者訊息 ───
 if user_message:
     st.session_state.messages.append({"role": "user", "content": user_message})
     
