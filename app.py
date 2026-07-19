@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 終極進化版：已升級 Llama-3.3 高智商大腦、對話更靈活擬真！")
+st.caption("UI 終極進化版：輸入框已完美固定置底，手機操作超流暢！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -110,7 +110,7 @@ def parse_and_display_response(full_text, is_last=False):
                 if hint_audio:
                     st.audio(hint_audio, format="audio/mp3")
 
-# 初始化對話歷史（優化 Prompt：允許 AI 在限制內展現更自然的聊天思想）
+# 初始化對話歷史
 if "current_lesson" not in st.session_state or st.session_state.current_lesson != selected_lesson:
     st.session_state.current_lesson = selected_lesson
     st.session_state.messages = [
@@ -130,7 +130,7 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
                 f"  \"單字2\": {{\"pron\": \"/KK音標/\", \"ch\": \"中文意思\"}}\n"
                 f"}}\n"
                 f"```\n"
-                f"5. **重要回傳格式規則**：必須精準使用雙豎線『||』當作分隔符號，提供 3 個簡單回答方向提示（這 3 個提示要根據對話脈絡靈活變化，不要死板）。格式如下：\n"
+                f"5. **重要回傳格式規則**：必須精準使用雙豎線『||』當作分隔符號，提供 3 個簡單回答方向提示。格式如下：\n"
                 f"[老師說的話與中文翻譯]\n"
                 f"```json\n"
                 f"{{單字字典內容}}\n"
@@ -158,7 +158,28 @@ if "current_lesson" not in st.session_state or st.session_state.current_lesson !
         }
     ]
 
-# ─── 3. 先渲染歷史對話紀錄 ───
+# ─── 3. 語音輸入區：移至頂部固定位置（不再綁定置底，避免破壞自動黏著特性） ───
+st.write("### 🎤 點擊錄音直接說話：")
+audio_key = f"audio_in_{len(st.session_state.messages)}"
+audio_file = st.audio_input("語音輸入", key=audio_key, label_visibility="collapsed")
+
+user_message = None
+
+if audio_file:
+    with st.spinner("正在把你的聲音轉成文字..."):
+        try:
+            transcription = client.audio.transcriptions.create(
+                file=(audio_file.name, audio_file.read()),
+                model="whisper-large-v3",
+                language="en"
+            )
+            user_message = transcription.text
+        except Exception as e:
+            st.error(f"語音辨識出錯了：{str(e)}")
+
+st.write("---")
+
+# ─── 4. 渲染歷史對話紀錄 ───
 for idx, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
@@ -168,44 +189,20 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 4. 輸入區置底 ───
-user_message = None
+# ─── 5. 解放打字輸入框：單獨放在最外層，觸發內建固定置底特性 ───
+user_text = st.chat_input("或者是用打字回答 Lily 老師...")
+if user_text:
+    user_message = user_text
 
-with st.container():
-    st.write("") 
-    col1, col2 = st.columns([1, 4])
-    
-    with col1:
-        audio_key = f"audio_in_{len(st.session_state.messages)}"
-        audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
-        
-    with col2:
-        user_text = st.chat_input("或者是用打字回答 Lily 老師...")
-
-    if audio_file:
-        with st.spinner("正在把你的聲音轉成文字..."):
-            try:
-                transcription = client.audio.transcriptions.create(
-                    file=(audio_file.name, audio_file.read()),
-                    model="whisper-large-v3",
-                    language="en"
-                )
-                user_message = transcription.text
-            except Exception as e:
-                st.error(f"語音辨識出錯了：{str(e)}")
-
-    if user_text:
-        user_message = user_text
-
-# ─── 5. 處理使用者訊息（核心升級：換 70B 大腦 ＋ 提高溫度 0.7） ───
+# ─── 6. 處理使用者訊息 ───
 if user_message:
     st.session_state.messages.append({"role": "user", "content": user_message})
     
     try:
         chat_completion = client.chat.completions.create(
             messages=st.session_state.messages,
-            model="llama-3.3-70b-versatile", # 💡 升級成高智商 70B 模型
-            temperature=0.7,                  # 💡 提高溫度，讓對話更有創意、思想更廣
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
         )
         response = chat_completion.choices[0].message.content
         st.session_state.messages.append({"role": "assistant", "content": response})
