@@ -7,23 +7,32 @@ import re
 # 設定網頁標題與手機排版
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
-# 💡 核心魔法：用 CSS 強制將最下方的輸入區容器固定在螢幕底部
+# 💡 終極修正 CSS：全面兼容電腦、iOS Safari、Android Chrome 虛擬鍵盤
 st.markdown(
     """
     <style>
-    /* 讓底部輸入容器固定在視窗最下方 */
-    div[data-testid="stVerticalBlockBorderWrapper"] > div:last-child {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background-color: var(--background-color);
-        padding: 10px 20px 20px 20px;
-        z-index: 99999;
+    /* 準確鎖定 Streamlit 最底部的 App 容器，強制其在手機與電腦上皆置底 */
+    [data-testid="stMainBlockContainer"] {
+        padding-bottom: 160px !important; /* 確保對話不被底部工具列遮住 */
     }
-    /* 為了防止最後一句對話被固定的底部欄遮住，給主頁面留一些底部空間 */
-    .main .block-container {
-        padding-bottom: 120px !important;
+    
+    /* 針對我們自訂的底部輸入區進行強制黏著 */
+    div.custom-bottom-bar {
+        position: fixed;
+        bottom: 0px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 730px; /* 與 Streamlit centered 寬度一致 */
+        background-color: #0e1117; /* 配合深色主題，可依喜好調整 */
+        padding: 15px 20px (15px + env(safe-area-inset-bottom)) 20px; /* 兼容 iPhone 底部橫條 */
+        z-index: 999999;
+        border-top: 1px solid rgba(250, 250, 250, 0.1);
+    }
+    
+    /* 修正手機上欄位並排時的外距，讓語音和打字對齊 */
+    div[data-testid="stColumn"] {
+        min-width: 0px !important;
     }
     </style>
     """,
@@ -31,7 +40,7 @@ st.markdown(
 )
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 終極進化版：左側語音、右側打字，完美水平並排且穩固置底！")
+st.caption("UI 終極進化版：左側語音、右側打字，RWD 手機/電腦雙端完美置底！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -74,7 +83,7 @@ st.sidebar.info(lessons[selected_lesson])
 def get_audio_bytes(text):
     try:
         clean_text = re.sub(r'^.*?[：:]', '', text)
-        clean_text = re.sub(r'[\(\[\{【].*?[\)\]\}】]', '', clean_text)
+        clean_text = re.sub(r'[\(\[\{【].*?[\)\]\}裝]', '', clean_text)
         clean_text = "".join(c for c in clean_text if c.isascii()).strip()
         if clean_text:
             tts = gTTS(text=clean_text, lang='en', slow=True)
@@ -191,40 +200,39 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 4. LINE風格：左側語音、右側打字（透過下方容器結合 CSS 實現強置底） ───
+# ─── 4. 終極解法：用自訂 HTML 類名包裹容器，徹底鎖死手機端底部 ───
 user_message = None
 
-# 注意：此容器在頁面程式碼最後方，會被我們的 CSS 抓到並強制固定在最底部
-input_container = st.container()
-with input_container:
-    col1, col2 = st.columns([1, 5])
+# 我們主動加上一橫列的 HTML 標籤（custom-bottom-bar），讓手機 CSS 100% 精準抓到它
+st.markdown('<div class="custom-bottom-bar">', unsafe_allow_html=True)
+
+col1, col2 = st.columns([1, 4])
+with col1:
+    audio_key = f"audio_fixed_{len(st.session_state.messages)}"
+    audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
     
-    with col1:
-        audio_key = f"audio_fixed_{len(st.session_state.messages)}"
-        # 使用原生麥克風小圖，使其在水平排列中不突兀
-        audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
-        
-    with col2:
-        # 改用普通的 text_input 來與語音完美水平並排，並移除預設外框標籤
-        user_text = st.text_input("回答 Lily 老師...", key=f"text_fixed_{len(st.session_state.messages)}", label_visibility="collapsed", placeholder="或者是用打字回答...")
+with col2:
+    user_text = st.text_input("回答...", key=f"text_fixed_{len(st.session_state.messages)}", label_visibility="collapsed", placeholder="或者是用打字回答...")
 
-    if audio_file:
-        with st.spinner("正在辨識語音..."):
-            try:
-                transcription = client.audio.transcriptions.create(
-                    file=(audio_file.name, audio_file.read()),
-                    model="whisper-large-v3",
-                    language="en"
-                )
-                user_message = transcription.text
-            except Exception as e:
-                st.error(f"語音辨識出錯了：{str(e)}")
+st.markdown('</div>', unsafe_allow_html=True)
 
-    # 當使用者按下 Enter 送出文字時觸發
-    if user_text:
-        user_message = user_text
+# ─── 5. 處理輸入邏輯 ───
+if audio_file:
+    with st.spinner("正在辨識語音..."):
+        try:
+            transcription = client.audio.transcriptions.create(
+                file=(audio_file.name, audio_file.read()),
+                model="whisper-large-v3",
+                language="en"
+            )
+            user_message = transcription.text
+        except Exception as e:
+            st.error(f"語音辨識出錯了：{str(e)}")
 
-# ─── 5. 處理使用者訊息 ───
+if user_text:
+    user_message = user_text
+
+# ─── 6. 處理使用者訊息 ───
 if user_message:
     st.session_state.messages.append({"role": "user", "content": user_message})
     
