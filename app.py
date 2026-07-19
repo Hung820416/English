@@ -7,34 +7,23 @@ import re
 # 設定網頁標題與手機排版
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
-# 💡 超強效跨平台置底 CSS：精準捕獲手機版與電腦版的底部容器
+# 💡 核心魔法：用 CSS 強制將最下方的輸入區容器固定在螢幕底部
 st.markdown(
     """
     <style>
-    /* 鎖定主頁面最底部的區塊，無論手機、電腦皆強制固定在最下方 */
-    div[data-testid="stVerticalBlock"] > div:has(div.stColumn) {
-        position: fixed !important;
-        bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        background-color: #ffffff !important; /* 電腦/手機皆底色反白不透過去 */
-        padding: 15px 20px 25px 20px !important;
-        z-index: 999999 !important;
-        box-shadow: 0px -4px 10px rgba(0,0,0,0.05) !important;
-        border-top: 1px solid #eeeeee !important;
+    /* 讓底部輸入容器固定在視窗最下方 */
+    div[data-testid="stVerticalBlockBorderWrapper"] > div:last-child {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background-color: var(--background-color);
+        padding: 10px 20px 20px 20px;
+        z-index: 99999;
     }
-    
-    /* 當深色模式啟動時，自動切換背景色 */
-    @media (prefers-color-scheme: dark) {
-        div[data-testid="stVerticalBlock"] > div:has(div.stColumn) {
-            background-color: #0e1117 !important;
-            border-top: 1px solid #262730 !important;
-        }
-    }
-
-    /* 防止最後一句對話被固定在底部的輸入欄遮擋 */
+    /* 為了防止最後一句對話被固定的底部欄遮住，給主頁面留一些底部空間 */
     .main .block-container {
-        padding-bottom: 150px !important;
+        padding-bottom: 120px !important;
     }
     </style>
     """,
@@ -42,7 +31,7 @@ st.markdown(
 )
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 終極修復：電腦+手機全平台完美置底，語音音波完美呈現！")
+st.caption("UI 終極進化版：左側語音、右側打字，完美水平並排且穩固置底！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -202,23 +191,25 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 4. 終極並排輸入欄（透過大比例 2:3 釋放音波空間） ───
+# ─── 4. LINE風格：左側語音、右側打字（透過下方容器結合 CSS 實現強置底） ───
 user_message = None
 
-# 這段會被上方的 `position: fixed` 強制黏在手機/電腦螢幕的最底端
-with st.container():
-    col1, col2 = st.columns([2, 3])  # 2:3 寬度，確保手機版語音點下去有空間顯示音波跳動！
+# 注意：此容器在頁面程式碼最後方，會被我們的 CSS 抓到並強制固定在最底部
+input_container = st.container()
+with input_container:
+    col1, col2 = st.columns([1, 5])
     
     with col1:
-        audio_key = f"audio_final_{len(st.session_state.messages)}"
-        # st.audio_input 在這裡擁有足夠寬度，會展示出完整的動態音波
-        audio_file = st.audio_input("語音", key=audio_key, label_visibility="collapsed")
+        audio_key = f"audio_fixed_{len(st.session_state.messages)}"
+        # 使用原生麥克風小圖，使其在水平排列中不突兀
+        audio_file = st.audio_input("🎤", key=audio_key, label_visibility="collapsed")
         
     with col2:
-        user_text = st.text_input("文字輸入", key=f"text_final_{len(st.session_state.messages)}", label_visibility="collapsed", placeholder="或者是打字回答...")
+        # 改用普通的 text_input 來與語音完美水平並排，並移除預設外框標籤
+        user_text = st.text_input("回答 Lily 老師...", key=f"text_fixed_{len(st.session_state.messages)}", label_visibility="collapsed", placeholder="或者是用打字回答...")
 
     if audio_file:
-        with st.spinner("辨識中..."):
+        with st.spinner("正在辨識語音..."):
             try:
                 transcription = client.audio.transcriptions.create(
                     file=(audio_file.name, audio_file.read()),
@@ -227,8 +218,9 @@ with st.container():
                 )
                 user_message = transcription.text
             except Exception as e:
-                st.error(f"辨識出錯：{str(e)}")
+                st.error(f"語音辨識出錯了：{str(e)}")
 
+    # 當使用者按下 Enter 送出文字時觸發
     if user_text:
         user_message = user_text
 
