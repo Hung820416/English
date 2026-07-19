@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="My Speak AI", page_icon="🗣️", layout="centered")
 
 st.title("🗣️ 專屬 AI 英文口語教練")
-st.caption("UI 終極進化版：輸入區置底、發音慢速糾錯、內建 Speak 風格隨身單字庫與發音！")
+st.caption("UI 終極進化版：已升級 Llama-3.3 高智商大腦、對話更靈活擬真！")
 
 # 1. 檢查並讀取隱藏的金鑰
 if "GROQ_API_KEY" in st.secrets:
@@ -63,9 +63,8 @@ def get_audio_bytes(text):
         return None
     return None
 
-# 💡 核心優化：解析 AI 回傳文字，自動將單字字典與發音獨立渲染出來
+# 解析 AI 回傳文字
 def parse_and_display_response(full_text, is_last=False):
-    # 先將主對話與 A/B/C 提示切開
     main_part = full_text
     hints_part = []
     
@@ -74,42 +73,34 @@ def parse_and_display_response(full_text, is_last=False):
         main_part = parts[0].strip()
         hints_part = [p.strip() for p in parts[1:] if p.strip()]
 
-    # 檢查內容是否有包含字典 JSON
     dict_content = ""
     if "```json" in main_part:
-        # 抽出 JSON 區塊
         match = re.search(r'```json\s*(.*?)\s*```', main_part, re.DOTALL)
         if match:
             dict_content = match.group(1)
-        # 把原本文字裡的 JSON 區塊濾掉，畫面才不會顯得很雜亂
         main_part = re.sub(r'```json.*?```', '', main_part, flags=re.DOTALL).strip()
 
-    # 1. 顯示老師說的話
     st.write(main_part)
     if is_last:
         audio_fp = get_audio_bytes(main_part)
         if audio_fp:
             st.audio(audio_fp, format="audio/mp3")
 
-    # 2. 💡 炫酷的動態單字查閱字典區 (Speak 風格)
     if dict_content:
         try:
             import json
             word_dict = json.loads(dict_content)
             if isinstance(word_dict, dict) and word_dict:
-                with st.expander("🔤 本句核心單字隨身查 (點擊打開單字庫與發音)"):
+                with st.expander("🔤 本句核心單字隨身查"):
                     for word, detail in word_dict.items():
-                        # 用漂亮的排版列出單字、音標與中文
                         st.markdown(f"**{word}**  `{detail.get('pron', '')}` —— {detail.get('ch', '')}")
-                        # 讓每個單字都可以單獨點擊發音！
                         if is_last:
                             word_audio = get_audio_bytes(word)
                             if word_audio:
                                 st.audio(word_audio, format="audio/mp3")
         except Exception:
-            pass # 防止 AI 吐出的 JSON 格式有微小瑕疵導致報錯
+            pass
 
-    # 3. 顯示 A/B/C 提示方向
     if hints_part:
         st.write("💡 **詞窮了嗎？點擊下方可聽慢速發音範例：**")
         for part_text in hints_part:
@@ -119,32 +110,32 @@ def parse_and_display_response(full_text, is_last=False):
                 if hint_audio:
                     st.audio(hint_audio, format="audio/mp3")
 
-# 初始化對話歷史（大修補：命令 AI 同步產生單字的字典檔）
+# 初始化對話歷史（優化 Prompt：允許 AI 在限制內展現更自然的聊天思想）
 if "current_lesson" not in st.session_state or st.session_state.current_lesson != selected_lesson:
     st.session_state.current_lesson = selected_lesson
     st.session_state.messages = [
         {
             "role": "system",
             "content": (
-                f"你是一位專門教導『0基礎華人』的英文老師，名字叫 Lily。\n"
+                f"你是一位個性活潑、思想豐富、專門教導『0基礎華人』的英文老師，名字叫 Lily。\n"
                 f"目前的情境是：【{selected_lesson}】。\n"
                 f"規則：\n"
-                f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話）。\n"
+                f"1. 請用極其簡單、短小的英文與學生對話（每次不超過 2 句話），但對話內容要生動、擬真，不要總是回一樣的話。\n"
                 f"2. 每一句英文後面，必須括號附上【中文翻譯】。\n"
-                f"3. 如果發現學生的英文有文法或疑似發音不準導致的拼字錯誤，請在對話最後用中文溫柔地糾正、給出正確說法。\n"
-                f"4. 【Speak風格單字庫指令】：為了方便0基礎學生查閱，請在你說的這段英文對話中，挑選出 2~4 個最重要的核心關鍵單字，並在對話最後（雙豎線 || 之前），嚴格以下方的 JSON 格式輸出這些單字的音標與中文解釋（不要多說任何廢話，直接給程式碼區塊）：\n"
+                f"3. 如果發現學生的英文有文法或發音拼字錯誤，請用中文溫柔糾正。\n"
+                f"4. 【Speak風格單字庫指令】：挑選出 2~4 個最重要的核心關鍵單字，並在對話最後（雙豎線 || 之前），嚴格以下方的 JSON 格式輸出：\n"
                 f"```json\n"
                 f"{{\n"
                 f"  \"單字1\": {{\"pron\": \"/KK音標/\", \"ch\": \"中文意思\"}},\n"
                 f"  \"單字2\": {{\"pron\": \"/KK音標/\", \"ch\": \"中文意思\"}}\n"
                 f"}}\n"
                 f"```\n"
-                f"5. **重要回傳格式規則**：在你對話與JSON結束後，必須精準使用雙豎線『||』當作分隔符號，來提供 3 個簡單回答方向提示。格式如下：\n"
+                f"5. **重要回傳格式規則**：必須精準使用雙豎線『||』當作分隔符號，提供 3 個簡單回答方向提示（這 3 個提示要根據對話脈絡靈活變化，不要死板）。格式如下：\n"
                 f"[老師說的話與中文翻譯]\n"
                 f"```json\n"
                 f"{{單字字典內容}}\n"
                 f"```\n"
-                f"（如有錯誤，在這裡加上中文溫柔糾錯）\n"
+                f"（如有錯誤糾正放在這裡）\n"
                 f"||方向 A：[英文句子] 【中文翻譯】\n"
                 f"||方向 B：[英文句子] 【中文翻譯】\n"
                 f"||方向 C：[英文句子] 【中文翻譯】"
@@ -177,7 +168,7 @@ for idx, msg in enumerate(st.session_state.messages):
             else:
                 st.write(msg["content"])
 
-# ─── 4. 輸入區置底：語音在左、打字在右 ───
+# ─── 4. 輸入區置底 ───
 user_message = None
 
 with st.container():
@@ -206,15 +197,15 @@ with st.container():
     if user_text:
         user_message = user_text
 
-# ─── 5. 處理使用者訊息 ───
+# ─── 5. 處理使用者訊息（核心升級：換 70B 大腦 ＋ 提高溫度 0.7） ───
 if user_message:
     st.session_state.messages.append({"role": "user", "content": user_message})
     
     try:
         chat_completion = client.chat.completions.create(
             messages=st.session_state.messages,
-            model="llama-3.1-8b-instant",
-            temperature=0.3, # 降低隨機性，強迫 AI 嚴格輸出單字庫 JSON
+            model="llama-3.3-70b-versatile", # 💡 升級成高智商 70B 模型
+            temperature=0.7,                  # 💡 提高溫度，讓對話更有創意、思想更廣
         )
         response = chat_completion.choices[0].message.content
         st.session_state.messages.append({"role": "assistant", "content": response})
